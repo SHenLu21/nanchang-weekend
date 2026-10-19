@@ -146,6 +146,17 @@
   .pin.hot {
     box-shadow: 0 0 0 3px #fff, 0 1px 6px rgba(0,0,0,.45);
   }
+  .pin-row {
+    display: flex;
+    gap: 2px;
+    transform: translate(-50%, -50%);
+  }
+  .pin-row .pin {
+    margin: 0;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
   .leaflet-tooltip.place {
     background: rgba(255,255,255,.94);
     border: 0;
@@ -181,7 +192,8 @@
     <span>北朝上 · 点名单可跳转</span>
   </div>
   <div class="bar" id="filters">
-    <button type="button" data-day="fri" class="on">周五</button>
+    <button type="button" data-day="all" class="on">全程</button>
+    <button type="button" data-day="fri">周五</button>
     <button type="button" data-day="sat">周六</button>
     <button type="button" data-day="sun">周日</button>
   </div>
@@ -300,6 +312,16 @@ function pinIcon(num, color, place) {
     iconSize: [0, 0]
   });
 }
+function pinRow(place, entries) {
+  const badges = entries.map(function (entry) {
+    return '<span class="pin" data-place="' + place + '" style="background:' + entry.color + ";border-color:" + entry.color + ';color:#fff">' + entry.num + "</span>";
+  }).join("");
+  return L.divIcon({
+    className: "pin-wrap",
+    html: '<div class="pin-row">' + badges + "</div>",
+    iconSize: [0, 0]
+  });
+}
 
 const markers = {};
 Object.keys(PLACES).forEach(function (id) {
@@ -312,37 +334,42 @@ Object.keys(PLACES).forEach(function (id) {
 
 DAYS.forEach(function (day) {
   const latlngs = day.steps.map(function (step) { return LL[step.place]; });
-  const casing = L.polyline(latlngs, {
+  day.base = latlngs;
+  const casing = L.polyline(day.base, {
     color: "#ffffff",
     weight: 10,
     opacity: 0.92,
     lineCap: "round",
     lineJoin: "round"
   });
-  const line = L.polyline(latlngs, {
+  const line = L.polyline(day.base, {
     color: day.color,
     weight: 5,
     opacity: 0.95,
     lineCap: "round",
     lineJoin: "round"
   });
-  day.layer = L.layerGroup([casing, line]);
+  day.casing = casing;
   day.line = line;
+  day.layer = L.layerGroup([casing, line]);
 });
 
-let activeDay = "fri";
+let activeDay = "all";
 let activeStop = null;
 
 function pad() {
   if (window.innerWidth >= 900) return { paddingTopLeft: [380, 130], paddingBottomRight: [40, 40] };
   return { paddingTopLeft: [24, 120], paddingBottomRight: [24, Math.round(window.innerHeight * 0.42) + 24] };
 }
+function fitPlaces(ids) {
+  map.fitBounds(L.latLngBounds(ids.map(function (id) { return LL[id]; })), pad());
+}
 function fitDay(day) {
   const ids = [];
   day.steps.forEach(function (step) {
     if (ids.indexOf(step.place) < 0) ids.push(step.place);
   });
-  map.fitBounds(L.latLngBounds(ids.map(function (id) { return LL[id]; })), pad());
+  fitPlaces(ids);
 }
 function syncLabels() {
   const show = map.getZoom() >= 14;
@@ -366,60 +393,77 @@ function selectStop(id) {
   const z = Math.max(map.getZoom(), 15);
   map.flyTo(LL[id], z, { duration: 0.6 });
 }
-function renderSheet(day, rows) {
+function renderSheet(days) {
   const sheet = document.getElementById("sheet");
   sheet.innerHTML = "";
-  const block = document.createElement("section");
-  block.className = "day";
-  const h = document.createElement("h2");
-  const sw = document.createElement("i");
-  sw.className = "swatch";
-  sw.style.background = day.color;
-  h.appendChild(sw);
-  h.appendChild(document.createTextNode(day.name));
-  block.appendChild(h);
-  rows.forEach(function (step) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "step";
-    btn.dataset.place = step.place;
-    btn.dataset.back = step.back ? "1" : "0";
-    btn.innerHTML = '<span class="num" style="background:' + day.color + ";border-color:" + day.color + ';color:#fff">' + step.num + '</span><span><span class="name">' + step.name + '</span><span class="sub">' + step.sub + "</span></span>";
-    btn.addEventListener("click", function () { selectStop(step.place); });
-    block.appendChild(btn);
+  days.forEach(function (item) {
+    const block = document.createElement("section");
+    block.className = "day";
+    const h = document.createElement("h2");
+    const sw = document.createElement("i");
+    sw.className = "swatch";
+    sw.style.background = item.day.color;
+    h.appendChild(sw);
+    h.appendChild(document.createTextNode(item.day.name));
+    block.appendChild(h);
+    item.rows.forEach(function (step) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "step";
+      btn.dataset.place = step.place;
+      btn.dataset.back = step.back ? "1" : "0";
+      btn.innerHTML = '<span class="num" style="background:' + item.day.color + ";border-color:" + item.day.color + ';color:#fff">' + step.num + '</span><span><span class="name">' + step.name + '</span><span class="sub">' + step.sub + "</span></span>";
+      btn.addEventListener("click", function () { selectStop(step.place); });
+      block.appendChild(btn);
+    });
+    sheet.appendChild(block);
   });
-  sheet.appendChild(block);
 }
 function applyDay(id) {
   activeDay = id;
   activeStop = null;
+  const showAll = id === "all";
   document.querySelectorAll("#filters button[data-day]").forEach(function (btn) {
     btn.classList.toggle("on", btn.dataset.day === id);
   });
-  let current = null;
+  const shown = [];
   DAYS.forEach(function (day) {
-    const on = day.id === id;
+    const on = showAll || day.id === id;
+    const dash = showAll && day.id === "sun" ? "12 10" : null;
+    day.casing.setStyle({ dashArray: dash, opacity: showAll && day.id === "sun" ? 0 : 0.92 });
+    day.line.setStyle({ dashArray: dash });
     if (on) {
-      current = day;
       day.layer.addTo(map);
-      day.line.bringToFront();
+      shown.push(day);
     } else {
       map.removeLayer(day.layer);
     }
   });
-  const packed = dayRows(current);
+  shown.forEach(function (day) { day.line.bringToFront(); });
+  const packed = {};
+  shown.forEach(function (day) { packed[day.id] = dayRows(day); });
   Object.keys(markers).forEach(function (place) {
-    const num = packed.numOf[place];
-    if (!num) {
+    const entries = [];
+    shown.forEach(function (day) {
+      const num = packed[day.id].numOf[place];
+      if (num) entries.push({ num: num, color: day.color, name: day.name });
+    });
+    if (!entries.length) {
       map.removeLayer(markers[place]);
       return;
     }
-    markers[place].setIcon(pinIcon(num, current.color, place));
-    markers[place].setPopupContent("<b>" + num + "  " + PLACES[place].name + "</b><div>" + PLACES[place].note + "</div>");
+    if (entries.length === 1) {
+      markers[place].setIcon(pinIcon(entries[0].num, entries[0].color, place));
+      markers[place].setPopupContent("<b>" + entries[0].num + "  " + PLACES[place].name + "</b><div>" + PLACES[place].note + "</div>");
+    } else {
+      markers[place].setIcon(pinRow(place, entries));
+      markers[place].setPopupContent("<b>" + PLACES[place].name + "</b><div>" + entries.map(function (entry) { return entry.name + " " + entry.num; }).join(" · ") + "</div><div>" + PLACES[place].note + "</div>");
+    }
     if (!map.hasLayer(markers[place])) markers[place].addTo(map);
   });
-  renderSheet(current, packed.rows);
-  fitDay(current);
+  renderSheet(shown.map(function (day) { return { day: day, rows: packed[day.id].rows }; }));
+  if (showAll) fitPlaces(Object.keys(PLACES));
+  else fitDay(shown[0]);
   syncLabels();
 }
 
@@ -430,7 +474,15 @@ document.getElementById("filters").addEventListener("click", function (e) {
 });
 map.on("zoomend", syncLabels);
 
-applyDay("fri");
+function defaultDay() {
+  const day = new Date().getDay();
+  if (day === 5) return "fri";
+  if (day === 6) return "sat";
+  if (day === 0) return "sun";
+  return "all";
+}
+
+applyDay(defaultDay());
 </script>
 </body>
 </html>
