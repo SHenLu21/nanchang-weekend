@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>南昌周末</title>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --ink: #1c2026;
+    --muted: #5c6570;
+    --paper: #f7f4ef;
+    --fri: #d63c30;
+    --sat: #1d6fe0;
+    --sun: #1a9a57;
+    --line: #e4ddd3;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    color: var(--ink);
+    background: #d9d3cb;
+  }
+  #map { position: absolute; inset: 0; }
+  .top {
+    position: absolute;
+    z-index: 500;
+    top: 12px;
+    left: 12px;
+    right: 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .top > * { pointer-events: auto; }
+  .title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    background: rgba(255,255,255,.94);
+    border-radius: 12px;
+    padding: 10px 14px;
+    width: fit-content;
+    max-width: 100%;
+    box-shadow: 0 1px 6px rgba(0,0,0,.12);
+  }
+  .title b { font-size: 18px; }
+  .title span { color: var(--muted); font-size: 13px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    border: 0;
+    background: #fff;
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.12);
+    cursor: pointer;
+  }
+  button.on { color: #fff; }
+  button[data-day="all"].on { background: var(--ink); }
+  button[data-day="fri"].on { background: var(--fri); }
+  button[data-day="sat"].on { background: var(--sat); }
+  button[data-day="sun"].on { background: var(--sun); }
+  button.ghost.on { background: var(--ink); color: #fff; }
+  .sheet {
+    position: absolute;
+    z-index: 500;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-height: 42vh;
+    overflow: auto;
+    background: rgba(247,244,239,.96);
+    border-radius: 16px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+    padding: 8px 8px 12px;
+  }
+  .day {
+    margin: 6px 8px 12px;
+  }
+  .day h2 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .swatch {
+    width: 22px;
+    height: 4px;
+    border-radius: 99px;
+    display: inline-block;
+  }
+  .swatch.dash {
+    background: repeating-linear-gradient(90deg, var(--sun) 0 7px, transparent 7px 11px) !important;
+  }
+  .step {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 10px;
+    padding: 7px 8px;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .step:hover, .step.active { background: #fff; }
+  .num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid var(--ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex: none;
+    background: #fff;
+  }
+  .step .name { font-size: 15px; }
+  .step .sub { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .pin-wrap { background: none; border: none; }
+  .pin {
+    width: 28px;
+    height: 28px;
+    margin-left: -14px;
+    margin-top: -14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #1c2026;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.35);
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  .pin.dim { opacity: .28; }
+  .pin.hot {
+    box-shadow: 0 0 0 3px #fff, 0 1px 6px rgba(0,0,0,.45);
+  }
+  .leaflet-tooltip.place {
+    background: rgba(255,255,255,.94);
+    border: 0;
+    border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.18);
+    color: #1c2026;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 2px 6px;
+  }
+  .leaflet-tooltip.place:before { display: none; }
+  .leaflet-popup-content { margin: 10px 12px; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+  .leaflet-popup-content b { font-size: 15px; }
+  .leaflet-popup-content div { color: #5c6570; font-size: 13px; margin-top: 2px; }
+  @media (min-width: 900px) {
+    .sheet {
+      top: 118px;
+      bottom: 16px;
+      right: auto;
+      width: 340px;
+      max-height: none;
+    }
+    .top { right: auto; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="top">
+  <div class="title">
+    <b>南昌周末</b>
+    <span>北朝上 · 点名单可跳转</span>
+  </div>
+  <div class="bar" id="filters">
+    <button type="button" data-day="fri" class="on">周五</button>
+    <button type="button" data-day="sat">周六</button>
+    <button type="button" data-day="sun">周日</button>
+  </div>
+</div>
+<div class="sheet" id="sheet"></div>
+<script src="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const PLACES = {
+  station: { name: "南昌西站", note: "火车站", wgs: [28.62664, 115.78819] },
+  hotel: { name: "洪城亚朵", note: "洪城路，住宿", wgs: [28.65850, 115.88200] },
+  dinner: { name: "打平伙 · 蛤蟆街", note: "豫章后街，晚饭", wgs: [28.68891, 115.88347] },
+  photo: { name: "时代广场", note: "滕王阁和双子塔", wgs: [28.68151, 115.88237] },
+  museum: { name: "江西省博物馆", note: "红谷滩", wgs: [28.70925, 115.87695] },
+  lunch: { name: "牛魔王 · 船山路", note: "午饭", wgs: [28.67018, 115.88681] },
+  art: { name: "江西省美术馆", note: "八一大道", wgs: [28.67723, 115.89781] },
+  square: { name: "八一广场", note: "纪念塔", wgs: [28.67721, 115.89959] },
+  soup: { name: "黄记瓦罐煨汤", note: "广场东路，排队换万方圆", wgs: [28.67519, 115.90243] }
+};
+
+const DAYS = [
+  {
+    id: "fri", name: "周五", color: "#d63c30",
+    steps: [
+      { place: "station", sub: "到达" },
+      { place: "hotel", sub: "放行李" },
+      { place: "dinner", sub: "晚饭" },
+      { place: "photo", sub: "夜景" },
+      { place: "hotel", name: "回酒店", back: true }
+    ]
+  },
+  {
+    id: "sat", name: "周六", color: "#1d6fe0",
+    steps: [
+      { place: "hotel", sub: "出发" },
+      { place: "museum", sub: "红谷滩" },
+      { place: "lunch", sub: "午饭" },
+      { place: "art", sub: "" },
+      { place: "square", sub: "" },
+      { place: "soup", sub: "广场东路" },
+      { place: "hotel", name: "回酒店", back: true }
+    ]
+  },
+  {
+    id: "sun", name: "周日", color: "#1a9a57",
+    steps: [
+      { place: "hotel", sub: "出发" },
+      { place: "station", sub: "返程" }
+    ]
+  }
+];
+
+function dayRows(day) {
+  let n = 0;
+  const numOf = {};
+  const rows = day.steps.map(function (step) {
+    if (!step.back) {
+      n += 1;
+      numOf[step.place] = n;
+    }
+    return {
+      place: step.place,
+      num: step.back ? numOf[step.place] : n,
+      name: step.name || PLACES[step.place].name,
+      sub: step.sub || "",
+      back: !!step.back
+    };
+  });
+  return { rows: rows, numOf: numOf };
+}
+
+function transformLat(x, y) {
+  let ret = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  ret += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
+  ret += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
+  return ret;
+}
+function transformLon(x, y) {
+  let ret = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  ret += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
+  ret += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
+  return ret;
+}
+function wgsToGcj(lat, lon) {
+  const a = 6378245.0;
+  const ee = 0.00669342162296594323;
+  let dLat = transformLat(lon - 105, lat - 35);
+  let dLon = transformLon(lon - 105, lat - 35);
+  const rad = lat / 180 * Math.PI;
+  let magic = Math.sin(rad);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+  dLon = (dLon * 180) / (a / sqrtMagic * Math.cos(rad) * Math.PI);
+  return [lat + dLat, lon + dLon];
+}
+
+const LL = {};
+Object.keys(PLACES).forEach(function (id) {
+  LL[id] = wgsToGcj(PLACES[id].wgs[0], PLACES[id].wgs[1]);
+});
+
+const map = L.map("map", { zoomControl: false, attributionControl: false });
+L.control.zoom({ position: "topright" }).addTo(map);
+L.tileLayer("https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7", {
+  subdomains: "1234",
+  maxZoom: 18,
+  minZoom: 10
+}).addTo(map);
+
+function pinIcon(num, color, place) {
+  return L.divIcon({
+    className: "pin-wrap",
+    html: '<div class="pin" data-place="' + place + '" style="background:' + color + ";border-color:" + color + ';color:#fff">' + num + "</div>",
+    iconSize: [0, 0]
+  });
+}
+
+const markers = {};
+Object.keys(PLACES).forEach(function (id) {
+  const marker = L.marker(LL[id], { icon: pinIcon("", "#1c2026", id), zIndexOffset: 500 });
+  marker.bindPopup("");
+  marker.bindTooltip(PLACES[id].name, { permanent: true, direction: "right", offset: [16, 0], className: "place", opacity: 0 });
+  marker.on("click", function () { selectStop(id); });
+  markers[id] = marker;
+});
+
+DAYS.forEach(function (day) {
+  const latlngs = day.steps.map(function (step) { return LL[step.place]; });
+  const casing = L.polyline(latlngs, {
+    color: "#ffffff",
+    weight: 10,
+    opacity: 0.92,
+    lineCap: "round",
+    lineJoin: "round"
+  });
+  const line = L.polyline(latlngs, {
+    color: day.color,
+    weight: 5,
+    opacity: 0.95,
+    lineCap: "round",
+    lineJoin: "round"
+  });
+  day.layer = L.layerGroup([casing, line]);
+  day.line = line;
+});
+
+let activeDay = "fri";
+let activeStop = null;
+
+function pad() {
+  if (window.innerWidth >= 900) return { paddingTopLeft: [380, 130], paddingBottomRight: [40, 40] };
+  return { paddingTopLeft: [24, 120], paddingBottomRight: [24, Math.round(window.innerHeight * 0.42) + 24] };
+}
+function fitDay(day) {
+  const ids = [];
+  day.steps.forEach(function (step) {
+    if (ids.indexOf(step.place) < 0) ids.push(step.place);
+  });
+  map.fitBounds(L.latLngBounds(ids.map(function (id) { return LL[id]; })), pad());
+}
+function syncLabels() {
+  const show = map.getZoom() >= 14;
+  Object.keys(markers).forEach(function (id) {
+    if (!map.hasLayer(markers[id])) return;
+    const tip = markers[id].getTooltip();
+    if (show) markers[id].openTooltip();
+    else markers[id].closeTooltip();
+    tip.setOpacity(show ? 1 : 0);
+  });
+}
+function selectStop(id) {
+  activeStop = id;
+  document.querySelectorAll(".step").forEach(function (el) {
+    el.classList.toggle("active", el.dataset.place === id && el.dataset.back !== "1");
+  });
+  document.querySelectorAll(".pin").forEach(function (el) {
+    el.classList.toggle("hot", el.dataset.place === id);
+  });
+  markers[id].openPopup();
+  const z = Math.max(map.getZoom(), 15);
+  map.flyTo(LL[id], z, { duration: 0.6 });
+}
+function renderSheet(day, rows) {
+  const sheet = document.getElementById("sheet");
+  sheet.innerHTML = "";
+  const block = document.createElement("section");
+  block.className = "day";
+  const h = document.createElement("h2");
+  const sw = document.createElement("i");
+  sw.className = "swatch";
+  sw.style.background = day.color;
+  h.appendChild(sw);
+  h.appendChild(document.createTextNode(day.name));
+  block.appendChild(h);
+  rows.forEach(function (step) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "step";
+    btn.dataset.place = step.place;
+    btn.dataset.back = step.back ? "1" : "0";
+    btn.innerHTML = '<span class="num" style="background:' + day.color + ";border-color:" + day.color + ';color:#fff">' + step.num + '</span><span><span class="name">' + step.name + '</span><span class="sub">' + step.sub + "</span></span>";
+    btn.addEventListener("click", function () { selectStop(step.place); });
+    block.appendChild(btn);
+  });
+  sheet.appendChild(block);
+}
+function applyDay(id) {
+  activeDay = id;
+  activeStop = null;
+  document.querySelectorAll("#filters button[data-day]").forEach(function (btn) {
+    btn.classList.toggle("on", btn.dataset.day === id);
+  });
+  let current = null;
+  DAYS.forEach(function (day) {
+    const on = day.id === id;
+    if (on) {
+      current = day;
+      day.layer.addTo(map);
+      day.line.bringToFront();
+    } else {
+      map.removeLayer(day.layer);
+    }
+  });
+  const packed = dayRows(current);
+  Object.keys(markers).forEach(function (place) {
+    const num = packed.numOf[place];
+    if (!num) {
+      map.removeLayer(markers[place]);
+      return;
+    }
+    markers[place].setIcon(pinIcon(num, current.color, place));
+    markers[place].setPopupContent("<b>" + num + "  " + PLACES[place].name + "</b><div>" + PLACES[place].note + "</div>");
+    if (!map.hasLayer(markers[place])) markers[place].addTo(map);
+  });
+  renderSheet(current, packed.rows);
+  fitDay(current);
+  syncLabels();
+}
+
+document.getElementById("filters").addEventListener("click", function (e) {
+  const btn = e.target.closest("button[data-day]");
+  if (!btn) return;
+  applyDay(btn.dataset.day);
+});
+map.on("zoomend", syncLabels);
+
+applyDay("fri");
+</script>
+</body>
+</html>
